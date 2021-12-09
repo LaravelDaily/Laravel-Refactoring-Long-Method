@@ -10,7 +10,7 @@ class OrderController extends Controller
     public function store(Request $request, OrderService $orderService)
     {
         try {
-            $orderService->place_order(auth()->id(), $request->plan_id, $request->duration);
+            $orderService->placeOrder(auth()->id(), $request->plan_id, $request->duration);
         } catch (\Exception $exception) {
             abort(400, $exception->getMessage());
         }

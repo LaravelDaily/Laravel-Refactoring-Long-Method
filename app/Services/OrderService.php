@@ -16,16 +16,27 @@ use LaravelDaily\Invoices\Invoice;
 class OrderService
 {
 
-    public function place_order(int $userId, int $planId, int $duration)
+    public function placeOrder(int $userId, int $planId, int $duration)
     {
-        // Calculate total price
         $plan = Plan::find($planId);
         if (!$plan) {
             throw new \Exception('Cannot find the plan');
         }
-        $price = $plan->price * $duration;
 
-        // Check user's balance
+        $price = $this->calculateTotalPrice($plan->price, $duration);
+        $user = $this->checkUserBalance($userId, $price);
+        $order = $this->saveOrder($user, $planId, $duration, $price);
+        $this->sendInvoice($user, $plan, $order);
+        $this->sendNotificationsToAdmins($order);
+    }
+
+    public function calculateTotalPrice(int $planPrice, int $duration): int
+    {
+        return $planPrice * $duration;
+    }
+
+    public function checkUserBalance(int $userId, $price)
+    {
         $user = User::find($userId);
         if (!$user) {
             throw new \Exception('Cannot find the user');
@@ -33,11 +44,14 @@ class OrderService
         if ($user->balance < $price) {
             throw new \Exception('User balance is lower than purchase price');
         }
+        return $user;
+    }
 
-        // Create order and update user
-        $order = DB::transaction(function () use ($user, $userId, $planId, $duration, $price) {
+    public function saveOrder($user, int $planId, int $duration, $price)
+    {
+        return DB::transaction(function () use ($user, $planId, $duration, $price) {
             $order = Order::create([
-                'user_id' => $userId,
+                'user_id' => $user->id,
                 'plan_id' => $planId,
                 'duration' => $duration,
                 'price' => $price
@@ -52,10 +66,12 @@ class OrderService
 
             return $order;
         });
+    }
 
-        // Save invoice and send it
+    public function sendInvoice($user, $plan, $order): void
+    {
         $customer = new Buyer([
-            'name'          => $user->name,
+            'name' => $user->name,
             'custom_fields' => [
                 'email' => $user->email,
             ],
@@ -70,8 +86,10 @@ class OrderService
             ->save('public');
 
         Notification::send($user, new InvoiceNotification($order));
+    }
 
-        // Send notifications to admins
+    public function sendNotificationsToAdmins($order): void
+    {
         $admins = User::where('is_admin', 1)->get();
         Notification::send($admins, new NewOrderNotification($order));
     }
